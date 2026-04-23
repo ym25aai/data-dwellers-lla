@@ -1,515 +1,106 @@
-# data-dwellers-lla
-LLA Legacy Migration Project - Deployment Guide
-Project: Local Library Archive (LLA) Digital Catalogue System
-Version: 1.0
-Last Updated: [Date]
-Team: [Team Name]
+# LLA Legacy Migration Project - Deployment Guide
 
-Table of Contents
-Overview
+**Project:** Local Library Archive (LLA) Digital Catalogue System | **Version:** 1.0 | **Last Updated:** 23 April 2026 | **Team:** [Your Team Name]
 
-Architecture
+---
 
-Prerequisites
+## Table of Contents
 
-Quick Deployment
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Prerequisites](#prerequisites)
+4. [Quick Deployment](#quick-deployment)
+5. [Manual Deployment](#manual-deployment)
+6. [Verification Steps](#verification-steps)
+7. [Maintenance](#maintenance)
+8. [Troubleshooting](#troubleshooting)
+9. [File Reference](#file-reference)
 
-Manual Deployment
+---
 
-Verification Steps
+## Overview
 
-Maintenance
+This deployment guide provides instructions for installing and configuring the LLA Legacy Migration digital catalogue system. The system consists of a web server hosting a PHP search interface and a database server storing library records. Both servers run on Ubuntu 22.04 LTS. Key features include a normalised SQL database in Third Normal Form (3NF), a web-based search interface for books by title or author, automated daily backups with 30-day retention, GDPR-compliant data handling with anonymisation procedures, and firewall-restricted database access implementing the principle of least privilege.
 
-Troubleshooting
+---
 
-File Reference
+## Architecture
 
-Overview
-This deployment guide provides instructions for installing and configuring the LLA Legacy Migration digital catalogue system. The system consists of a web server hosting a PHP search interface and a database server storing library records. Both servers run on Ubuntu 22.04 LTS.
+The system implements a three-tier architecture. The web server resides at 34.228.58.26 in a public subnet with open ports 22 (SSH), 80 (HTTP), and 443 (HTTPS). The database server resides at 172.31.29.175 in a private subnet with open ports 22 (SSH) and 3306 (MySQL), with MySQL access restricted exclusively to the web server IP address. Network flow follows this pattern: Internet traffic reaches the web server via ports 80 and 443, then the web server communicates with the database server via port 3306 through a firewall that blocks all direct internet access to the database.
 
-Key Features:
+---
 
-Normalised SQL database in Third Normal Form (3NF)
+## Prerequisites
 
-Web-based search interface for books by title or author
+Before beginning deployment, ensure you have the following AWS infrastructure: two Ubuntu 22.04 LTS t2.micro EC2 instances (one with a public IP for the web server, one with a private IP only for the database server). Security group for the web server must allow SSH (22) from your admin IP, HTTP (80) from 0.0.0.0/0, and HTTPS (443) from 0.0.0.0/0. Security group for the database server must allow SSH (22) from your admin IP and MySQL (3306) from the web server IP address only. You will also need a .pem key pair file for SSH access to both instances. On your local machine, you need an SSH client, Git installed, and access to the project repository.
 
-Automated daily backups with 30-day retention
+---
 
-GDPR-compliant data handling with anonymisation procedures
+## Quick Deployment
 
-Firewall-restricted database access implementing least privilege
+The system can be deployed automatically using the provided `deploy.sh` script. First, clone the repository using `git clone [your-repository-url]` and navigate into the directory. Open `deploy.sh` and update the following variables: `WEB_IP="34.228.58.26"`, `DB_IP="172.31.29.175"`, and `KEY_PATH="/path/to/your-key.pem"`. Make all scripts executable by running `chmod +x deploy.sh setup_web.sh setup_db.sh backup.sh rotate_logs.sh`. Then run `./deploy.sh` to execute the automated deployment. Once completed, access the search interface at `http://34.228.58.26/lla/`.
 
-Architecture
-The system implements a three-tier architecture:
+---
 
-text
-Internet → [Firewall:80,443] → Web Server (Public Subnet)
-                                    ↓
-                            [Firewall:3306]
-                                    ↓
-                      Database Server (Private Subnet)
-Component	IP Address	Subnet	Open Ports
-Web Server	34.228.58.26	Public	22 (SSH), 80 (HTTP), 443 (HTTPS)
-Database Server	172.31.29.175	Private	22 (SSH), 3306 (MySQL - Web Server only)
-Prerequisites
-Before beginning deployment, ensure you have the following:
+## Manual Deployment
 
-AWS Infrastructure
-Requirement	Specification
-EC2 Instance 1 (Web Server)	Ubuntu 22.04 LTS, t2.micro, Public IP
-EC2 Instance 2 (Database Server)	Ubuntu 22.04 LTS, t2.micro, Private IP only
-Security Group (Web)	SSH (22) from admin IP, HTTP (80) from 0.0.0.0/0, HTTPS (443) from 0.0.0.0/0
-Security Group (DB)	SSH (22) from admin IP, MySQL (3306) from Web Server IP only
-Key Pair	.pem file for SSH access to both instances
-Local Machine Requirements
-SSH client (terminal on Mac/Linux, PuTTY or WSL on Windows)
+If you prefer to deploy manually, follow these steps. For the database server, SSH into the server using `ssh -i your-key.pem ubuntu@172.31.29.175`. Run `chmod +x setup_db.sh` followed by `sudo ./setup_db.sh`. The script will update system packages, install MySQL 8.0, secure the installation by removing anonymous users and disabling remote root login, create the `lla_db` database, import `schema.sql` and `seed_data.sql`, create the restricted `lla_user` with least privileges, configure the firewall to allow MySQL only from the web server IP, and configure MySQL to accept remote connections. Expected output is "DATABASE SERVER READY" with confirmation that the database was created with sample data.
 
-Git installed
+For the web server, SSH into the server using `ssh -i your-key.pem ubuntu@34.228.58.26`. Run `chmod +x setup_web.sh` followed by `sudo ./setup_web.sh`. The script will update system packages, install Apache 2.4 and PHP 8.1, create the `/var/www/html/lla/` directory, deploy `config.php` with database connection settings, deploy `index.php` with the search interface, configure the firewall to allow HTTP and HTTPS, hide Apache version information for security, and set correct file permissions. Expected output is "WEB SERVER READY" with the URL to access the site.
 
-Access to the project repository
+For automated backups, on the database server make the backup scripts executable with `chmod +x backup.sh rotate_logs.sh`. Edit the crontab using `sudo crontab -e` and add the following lines: `0 2 * * * /home/ubuntu/backup.sh` for daily database backup at 2 AM, and `0 3 * * * /home/ubuntu/rotate_logs.sh` for daily log rotation at 3 AM. Verify cron jobs are configured by running `sudo crontab -l`.
 
-Network Connectivity
-Admin machine must have internet access
+---
 
-Admin IP address must be allowed in both security groups (port 22)
+## Verification Steps
 
-Quick Deployment
-The system can be deployed automatically using the provided deploy.sh script. This script copies all configuration files to both servers and executes the setup scripts remotely.
+After deployment, run these commands to verify the system is working correctly. Verify the web server is running with `sudo systemctl status apache2` which should show "active (running)", and test the web server response with `curl -I http://localhost/lla/` which should return HTTP/1.1 200 OK. Verify the database server is running with `sudo systemctl status mysql` which should show "active (running)", and test the database has data with `sudo mysql -e "USE lla_db; SELECT COUNT(*) FROM Book;"` which should return 15. Verify the web-to-database connection from the web server using `mysql -u lla_user -p'LibrarySecure2026!' -h 172.31.29.175 -e "SELECT 1"` which should return a table with the value 1.
 
-Step 1: Clone the Repository
-bash
-git clone [your-repository-url]
-cd [repository-name]
-Step 2: Configure Variables
-Open deploy.sh and update the following variables:
+Verify the search interface by opening a web browser and navigating to `http://34.228.58.26/lla/`. Perform test searches: "1984" should return George Orwell's 1984, "Harry" should return Harry Potter and the Philosopher's Stone, "Austen" should return Pride and Prejudice, and "xyz" should return "No results found". Verify the backup script by running `./backup.sh` manually, then checking `ls -la /var/backups/lla_db/` which should show a file named `backup_YYYYMMDD_HHMMSS.sql.gz`, and checking the log with `cat /var/log/lla_backup.log`. Verify cron jobs with `sudo crontab -l` which should show the two cron entries. Verify firewall rules on the web server with `sudo ufw status numbered` which should show SSH allowed from your IP, and HTTP and HTTPS allowed from anywhere. On the database server, `sudo ufw status numbered` should show SSH allowed from your IP and MySQL allowed from 34.228.58.26 only.
 
-bash
-WEB_IP="34.228.58.26"           # Your web server public IP
-DB_IP="172.31.29.175"           # Your database server private IP
-KEY_PATH="/path/to/your-key.pem" # Path to your AWS .pem key file
-Step 3: Make Scripts Executable
-bash
-chmod +x deploy.sh
-chmod +x setup_web.sh
-chmod +x setup_db.sh
-chmod +x backup.sh
-chmod +x rotate_logs.sh
-Step 4: Run Deployment
-bash
-./deploy.sh
-The deployment script will:
+Verify GDPR compliance features by testing the anonymisation procedure with `sudo mysql -e "USE lla_db; CALL GDPR_AnonymizeMember(1);"` followed by `sudo mysql -e "USE lla_db; SELECT email, full_name, is_active FROM Member WHERE member_id=1;"` which should return a deleted email address, "[REDACTED]" as the name, and 0 for active status.
 
-Copy setup_db.sh to the database server and execute it
+---
 
-Copy setup_web.sh to the web server and execute it
+## Maintenance
 
-Copy backup.sh and rotate_logs.sh to the database server
+Daily operations are automated via cron jobs. The database backup runs daily at 2:00 AM using `backup.sh` with logs written to `/var/log/lla_backup.log`. Log rotation runs daily at 3:00 AM using `rotate_logs.sh` with logs written to `/var/log/lla_rotate.log`. No manual intervention is required for routine maintenance.
 
-Configure cron jobs for automated maintenance
+To perform an immediate manual backup, run `./backup.sh` on the database server, then verify the backup was created with `ls -la /var/backups/lla_db/`. To restore from the most recent backup, run `LATEST_BACKUP=$(ls -t /var/backups/lla_db/*.sql.gz | head -1)` followed by `gunzip -c $LATEST_BACKUP | sudo mysql lla_db`. To view logs, use `cat /var/log/lla_backup.log` for backup logs, `sudo tail -f /var/log/apache2/access.log` for web server access logs, `sudo tail -f /var/log/apache2/error.log` for web server error logs, or `sudo tail -f /var/log/mysql/error.log` for MySQL logs.
 
-Step 5: Verify Deployment
-Once the script completes, access the search interface at:
+To add new books to the database, connect to MySQL with `sudo mysql -u root -p`, then use the `lla_db` database with `USE lla_db;`. Insert a new book using `INSERT INTO Book (title, isbn, publication_year, total_copies, available_copies) VALUES ('New Book Title', '9781234567890', 2026, 3, 3);`. Insert a new author if needed using `INSERT INTO Author (name) VALUES ('New Author Name');`. Link the book to the author using `INSERT INTO BookAuthor (book_id, author_id) VALUES (LAST_INSERT_ID(), [author_id]);`. Exit MySQL with `EXIT;`.
 
-text
-http://34.228.58.26/lla/
-Manual Deployment
-If you prefer to deploy manually or need to troubleshoot individual components, follow these steps.
+---
 
-Part A: Database Server Setup
-SSH into the database server:
+## Troubleshooting
 
-bash
-ssh -i your-key.pem ubuntu@[DB-SERVER-PRIVATE-IP]
-Run the database setup script:
+If the web server cannot connect to the database, the search interface will show a "Connection failed" error. Diagnose by running `nc -zv 172.31.29.175 3306` from the web server. Solutions include verifying the database server is running with `sudo systemctl status mysql`, verifying the MySQL bind address is not set to 127.0.0.1 only by checking `sudo grep "bind-address" /etc/mysql/mysql.conf.d/mysqld.cnf`, verifying the firewall on the database server with `sudo ufw status`, and verifying the AWS security group allows MySQL traffic from the web server IP address.
 
-bash
-# Copy the script to the server first (from your local machine)
-scp -i your-key.pem setup_db.sh ubuntu@[DB-PRIVATE-IP]:~/
+If the backup script fails, no backups will appear in `/var/backups/lla_db/`. Diagnose by running `./backup.sh` manually to see the error message. Solutions include verifying the MySQL root password in the script matches the actual root password, creating the backup directory manually with `sudo mkdir -p /var/backups/lla_db`, and checking available disk space with `df -h`.
 
-# SSH into the server
-ssh -i your-key.pem ubuntu@[DB-PRIVATE-IP]
+If the search interface returns no results, the search works but returns zero results for queries that should match. Diagnose by checking if the database has data with `sudo mysql -e "USE lla_db; SELECT COUNT(*) FROM Book;"`. Solutions include re-importing the seed data with `sudo mysql lla_db < seed_data.sql` and checking the Apache error logs with `sudo tail -f /var/log/apache2/error.log`.
 
-# Run the setup script
-chmod +x setup_db.sh
-sudo ./setup_db.sh
-What the script does:
+If SSH connection is refused, you cannot access either server. Solutions include verifying the security group allows SSH from your current IP address (note that your IP may have changed), checking that the instance is running in the AWS console, verifying you are using the correct .pem key file, and checking that the instance public IP address has not changed after a reboot.
 
-Updates system packages
+If you receive a "Permission denied" error when trying to run scripts, the scripts are not executable. Fix by running `chmod +x script_name.sh` for each script.
 
-Installs MySQL 8.0
+---
 
-Secures MySQL installation (removes anonymous users, disables remote root)
+## File Reference
 
-Creates lla_db database
+The following files are included in this deployment package. `deploy.sh` is the master deployment script that runs on your local machine. `setup_web.sh` is the web server automation script that runs on the web server. `setup_db.sh` is the database server automation script that runs on the database server. `backup.sh` is the daily backup script that runs on the database server. `rotate_logs.sh` is the log rotation script that runs on the database server. `schema.sql` contains the database schema in Third Normal Form (3NF) and runs on the database server. `seed_data.sql` contains sample data for testing and runs on the database server. `README.md` is this documentation file.
 
-Imports schema.sql (table structure)
+The database schema includes eight tables. `Author` stores author names with a unique constraint. `Publisher` stores publisher details separately to eliminate transitive dependency. `Book` stores core bibliographic information with foreign keys to Publisher. `BookAuthor` is a junction table linking books to authors in a many-to-many relationship. `Member` stores library member data with GDPR-compliant data minimisation. `LoanHistory` tracks all book loans and returns with referential integrity. `Reservation` manages book reservations for borrowed books. `AuditLog` records all data access for compliance auditing.
 
-Imports seed_data.sql (sample data)
+---
 
-Creates lla_user with restricted privileges
+## Security Considerations
 
-Configures firewall to allow MySQL only from web server IP
+The following security measures are implemented at each layer. At the network layer, a firewall with default-deny policy blocks all traffic except explicitly allowed ports, and the database is accessible only from the web server IP address. At the host layer, SSH key authentication is required with password authentication disabled and root login prohibited. At the application layer, prepared statements prevent SQL injection attacks, and Apache version information is hidden from HTTP headers. At the data layer, the principle of least privilege restricts the database user to only SELECT, INSERT, and UPDATE privileges, GDPR-compliant data minimisation ensures no unnecessary personal data is collected, and audit logging records all data access for compliance reporting.
 
-Configures MySQL to accept remote connections
+---
 
-Expected output:
+## Version History
 
-text
-=== DATABASE SERVER SETUP STARTING ===
-=== DATABASE SERVER READY ===
-Database 'lla_db' created with sample data
-Part B: Web Server Setup
-SSH into the web server:
+Version 1.0 released on 23 April 2026 as initial release.
 
-bash
-ssh -i your-key.pem ubuntu@[WEB-SERVER-PUBLIC-IP]
-Run the web server setup script:
-
-bash
-# Copy the script to the server first
-scp -i your-key.pem setup_web.sh ubuntu@[WEB-PUBLIC-IP]:~/
-
-# SSH into the server
-ssh -i your-key.pem ubuntu@[WEB-PUBLIC-IP]
-
-# Run the setup script
-chmod +x setup_web.sh
-sudo ./setup_web.sh
-What the script does:
-
-Updates system packages
-
-Installs Apache 2.4 and PHP 8.1
-
-Creates the /var/www/html/lla/ directory
-
-Deploys config.php with database connection settings
-
-Deploys index.php with search interface
-
-Configures firewall to allow HTTP (80) and HTTPS (443)
-
-Hides Apache version information for security
-
-Sets correct file permissions
-
-Expected output:
-
-text
-=== WEB SERVER SETUP STARTING ===
-=== WEB SERVER READY ===
-Access your site at: http://34.228.58.26/lla/
-Part C: Configure Automated Backups
-On the database server, set up cron jobs for automated maintenance:
-
-bash
-# Copy backup scripts to the database server
-scp -i your-key.pem backup.sh ubuntu@[DB-PRIVATE-IP]:~/
-scp -i your-key.pem rotate_logs.sh ubuntu@[DB-PRIVATE-IP]:~/
-
-# SSH into database server
-ssh -i your-key.pem ubuntu@[DB-PRIVATE-IP]
-
-# Make scripts executable
-chmod +x backup.sh rotate_logs.sh
-
-# Edit crontab
-sudo crontab -e
-Add the following lines to crontab:
-
-bash
-# Daily database backup at 2:00 AM
-0 2 * * * /home/ubuntu/backup.sh
-
-# Daily log rotation at 3:00 AM
-0 3 * * * /home/ubuntu/rotate_logs.sh
-Save and exit. Verify cron jobs are configured:
-
-bash
-sudo crontab -l
-Verification Steps
-After deployment, run these commands to verify the system is working correctly.
-
-1. Verify Web Server is Running
-bash
-# Check Apache status
-sudo systemctl status apache2
-
-# Expected: active (running)
-
-# Test web server response
-curl -I http://localhost/lla/
-
-# Expected: HTTP/1.1 200 OK
-2. Verify Database Server is Running
-bash
-# Check MySQL status
-sudo systemctl status mysql
-
-# Expected: active (running)
-
-# Test database connection
-sudo mysql -e "USE lla_db; SELECT COUNT(*) FROM Book;"
-
-# Expected: +----------+
-#          | COUNT(*) |
-#          +----------+
-#          |       15 |
-#          +----------+
-3. Verify Web-to-Database Connection
-bash
-# From web server, test MySQL connectivity to database server
-mysql -u lla_user -p'LibrarySecure2026!' -h 172.31.29.175 -e "SELECT 1"
-
-# Expected output: +---+
-#                  | 1 |
-#                  +---+
-#                  | 1 |
-#                  +---+
-4. Verify Search Interface
-Open a web browser and navigate to:
-
-text
-http://34.228.58.26/lla/
-Perform test searches:
-
-"1984" – Should return George Orwell's 1984
-
-"Harry" – Should return Harry Potter
-
-"Austen" – Should return Pride and Prejudice
-
-"xyz" – Should return "No results found"
-
-5. Verify Backup Script
-bash
-# Run backup script manually
-./backup.sh
-
-# Check backup was created
-ls -la /var/backups/lla_db/
-
-# Expected output: backup_YYYYMMDD_HHMMSS.sql.gz
-
-# Check backup log
-cat /var/log/lla_backup.log
-6. Verify Cron Jobs
-bash
-# List cron jobs
-sudo crontab -l
-
-# Expected output:
-# 0 2 * * * /home/ubuntu/backup.sh
-# 0 3 * * * /home/ubuntu/rotate_logs.sh
-7. Verify Firewall Rules
-On Web Server:
-
-bash
-sudo ufw status numbered
-Expected:
-
-text
-Status: active
-
-To                         Action      From
---                         ------      ----
-22/tcp                     ALLOW       [Your-IP]
-80/tcp                     ALLOW       Anywhere
-443/tcp                    ALLOW       Anywhere
-On Database Server:
-
-bash
-sudo ufw status numbered
-Expected:
-
-text
-Status: active
-
-To                         Action      From
---                         ------      ----
-22/tcp                     ALLOW       [Your-IP]
-3306/tcp                   ALLOW       34.228.58.26
-8. Verify GDPR Compliance Features
-bash
-# Test GDPR anonymisation procedure
-sudo mysql -e "USE lla_db; CALL GDPR_AnonymizeMember(1);"
-
-# Verify member was anonymised
-sudo mysql -e "USE lla_db; SELECT email, full_name, is_active FROM Member WHERE member_id=1;"
-
-# Expected: deleted_1@anonymized.lla | [REDACTED] | 0
-Maintenance
-Daily Operations
-Maintenance tasks are automated via cron jobs. No manual intervention is required for:
-
-Task	Schedule	Script	Log Location
-Database backup	Daily at 2:00 AM	backup.sh	/var/log/lla_backup.log
-Log rotation	Daily at 3:00 AM	rotate_logs.sh	/var/log/lla_rotate.log
-Manual Backup
-To perform an immediate manual backup:
-
-bash
-# On database server
-./backup.sh
-
-# Verify backup was created
-ls -la /var/backups/lla_db/
-Restore from Backup
-To restore the database from the most recent backup:
-
-bash
-# On database server
-LATEST_BACKUP=$(ls -t /var/backups/lla_db/*.sql.gz | head -1)
-gunzip -c $LATEST_BACKUP | sudo mysql lla_db
-View Logs
-bash
-# View backup logs
-cat /var/log/lla_backup.log
-
-# View web server access logs
-sudo tail -f /var/log/apache2/access.log
-
-# View web server error logs
-sudo tail -f /var/log/apache2/error.log
-
-# View MySQL logs
-sudo tail -f /var/log/mysql/error.log
-Update Sample Data
-To add new books to the database:
-
-bash
-# Connect to MySQL
-sudo mysql -u root -p
-
-# Insert new book
-USE lla_db;
-INSERT INTO Book (title, isbn, publication_year, total_copies, available_copies) 
-VALUES ('New Book Title', '9781234567890', 2026, 3, 3);
-
-# Insert author if new
-INSERT INTO Author (name) VALUES ('New Author Name');
-
-# Link book to author
-INSERT INTO BookAuthor (book_id, author_id) VALUES (LAST_INSERT_ID(), [author_id]);
-
-# Exit
-EXIT;
-Troubleshooting
-Issue: Web Server Cannot Connect to Database
-Symptom: Search interface shows "Connection failed" error.
-
-Diagnosis:
-
-bash
-# From web server, test MySQL connectivity
-nc -zv 172.31.29.175 3306
-Solutions:
-
-Verify database server is running: sudo systemctl status mysql
-
-Verify MySQL bind address: sudo grep "bind-address" /etc/mysql/mysql.conf.d/mysqld.cnf
-
-Verify firewall on database server: sudo ufw status
-
-Verify security group allows MySQL from web server IP
-
-Issue: Backup Script Fails
-Symptom: No backups appear in /var/backups/lla_db/
-
-Diagnosis:
-
-bash
-# Run script manually to see error
-./backup.sh
-
-# Check MySQL credentials in script
-cat backup.sh | grep -i pass
-Solutions:
-
-Verify MySQL root password matches script
-
-Create backup directory: sudo mkdir -p /var/backups/lla_db
-
-Check disk space: df -h
-
-Issue: Search Returns No Results
-Symptom: Search interface works but returns zero results.
-
-Diagnosis:
-
-bash
-# Check database has data
-sudo mysql -e "USE lla_db; SELECT COUNT(*) FROM Book;"
-Solutions:
-
-Re-import seed data: sudo mysql lla_db < seed_data.sql
-
-Verify web server can read database: Check error_log in Apache logs
-
-Issue: SSH Connection Refused
-Symptom: Cannot SSH into either server.
-
-Solutions:
-
-Verify security group allows SSH from your IP address
-
-Check instance is running in AWS console
-
-Verify you are using the correct key file
-
-Check instance public IP address (may have changed after reboot)
-
-Issue: Permission Denied on Scripts
-Symptom: ./script.sh: Permission denied
-
-Solution:
-
-bash
-chmod +x script.sh
-File Reference
-The following files are included in this deployment package:
-
-Filename	Description	Destination Server
-deploy.sh	Master deployment script	Local machine
-setup_web.sh	Web server automation script	Web server
-setup_db.sh	Database server automation script	Database server
-backup.sh	Daily backup script	Database server
-rotate_logs.sh	Log rotation script	Database server
-schema.sql	Database schema (3NF)	Database server
-seed_data.sql	Sample data	Database server
-README.md	This file	Documentation
-Database Schema Tables
-Table	Purpose
-Author	Stores author names
-Publisher	Stores publisher details
-Book	Stores book information
-BookAuthor	Links books to authors (many-to-many)
-Member	Stores library member data (GDPR compliant)
-LoanHistory	Tracks book loans and returns
-Reservation	Manages book reservations
-AuditLog	Records data access for compliance
-Security Considerations
-The following security measures are implemented:
-
-Layer	Measure
-Network	Firewall with default-deny policy
-Network	Database accessible only from web server IP
-Host	SSH key authentication only
-Host	Root login disabled
-Application	Prepared statements prevent SQL injection
-Application	Apache version hidden from HTTP headers
-Data	Principle of least privilege for database user
-Data	GDPR-compliant data minimisation
-Data	Audit logging for all data access
-Support
-For issues or questions regarding this deployment:
-
-Module: 5COM2006 Design and Configuration Project
-
-Instructor: Dr Satrya Fajri Pratama
-
-Team: [Team Name]
-
-Version History
-Version	Date	Changes	Author
-1.0	[Date]	Initial release	[Team Name]
